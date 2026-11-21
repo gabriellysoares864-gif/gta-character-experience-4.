@@ -20,8 +20,35 @@ export default async (req) => {
     upstream.append("n", "1");
     upstream.append("image", photo, photo.name || "reference.png");
     const r = await fetch("https://api.openai.com/v1/images/edits", { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: upstream });
-    const payload = await r.json();
-    if (!r.ok) return new Response(JSON.stringify({ error: payload?.error?.message || "A API de imagem retornou um erro." }), { status: r.status, headers: { "Content-Type": "application/json" } });
+    const textoResposta = await r.text();
+
+let payload;
+
+try {
+  payload = JSON.parse(textoResposta);
+} catch {
+  return new Response(
+    JSON.stringify({
+      error: "A API retornou uma resposta inválida ou vazia. Tente novamente."
+    }),
+    {
+      status: 502,
+      headers: { "Content-Type": "application/json" }
+    }
+  );
+}
+
+if (!r.ok) {
+  return new Response(
+    JSON.stringify({
+      error: payload?.error?.message || "A API de imagem retornou um erro."
+    }),
+    {
+      status: 502,
+      headers: { "Content-Type": "application/json" }
+    }
+  );
+}
     const image = payload?.data?.[0]?.b64_json;
     if (!image) return new Response(JSON.stringify({ error: "A API não retornou uma imagem." }), { status: 502, headers: { "Content-Type": "application/json" } });
     return new Response(JSON.stringify({ image }), { status: 200, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
