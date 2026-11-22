@@ -37,6 +37,7 @@ export default async (req) => {
         }
       );
 
+      
       const payload = await response.json();
 
       if (!response.ok) {
