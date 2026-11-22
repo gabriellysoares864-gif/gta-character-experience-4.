@@ -7,11 +7,36 @@ let step=0,photo=null,answers={};const questions=[{title:'Qual será seu estilo 
  const screen=document.getElementById('screen');
  screen.innerHTML=`<div class="processing"><div class="ring"></div><h2>CRIANDO SEU PERSONAGEM...</h2><p>Transformando sua foto no universo GTA</p><div class="progress"><i id="load" style="width:12%"></i></div><p id="status">Enviando sua foto com segurança...</p></div>`;
  try{
-  if(!photo){throw new Error('Sua foto não foi encontrada. Volte e envie novamente.');}
+  if(!photo) throw new Error('Sua foto não foi encontrada. Volte e envie novamente.');
   const form=new FormData();form.append('photo',photo);form.append('answers',JSON.stringify(answers));
   const response=await fetch('/.netlify/functions/generate-avatar',{method:'POST',body:form});
-  const data=await response.json();
-  if(!response.ok||!data.image){throw new Error(data.error||'Não foi possível gerar a imagem.');}
-  screen.innerHTML=`<h2>SEU AVATAR ESTÁ PRONTO!</h2><div class="result-card"><img src="data:image/png;base64,${data.image}" alt="Avatar personalizado no estilo GTA" style="display:block;width:100%;max-width:520px;margin:0 auto 18px;border-radius:14px"><p>✨ Seu personagem personalizado</p><p>Esta é uma prévia da geração real. O pagamento e a entrega premium serão conectados na próxima etapa.</p><a class="cta" href="data:image/png;base64,${data.image}" download="meu-avatar-gta.png" style="display:inline-block;text-decoration:none;padding:14px 20px">BAIXAR IMAGEM</a><div class="notice">Sua imagem foi gerada por IA a partir da foto e das escolhas do quiz.</div></div><div class="navbtns"><button class="secondary" onclick="render()">VOLTAR AO RESUMO</button></div>`;
- }catch(err){screen.innerHTML=`<div class="result-card"><h2>Não conseguimos gerar agora</h2><p>${String(err.message||err).replace(/[<>]/g,'')}</p><button class="cta" onclick="processing()">TENTAR NOVAMENTE</button><button class="secondary" onclick="render()" style="margin-top:10px">VOLTAR</button></div>`;}
+  const raw=await response.text();
+  let data;try{data=JSON.parse(raw)}catch{throw new Error(`O servidor retornou uma resposta inválida (${response.status}). Verifique se a função generate-avatar está publicada corretamente.`)}
+  if(!response.ok) throw new Error(data.error||`Erro do servidor (${response.status})`);
+  if(data.image){
+    screen.innerHTML=`<h2>SEU AVATAR ESTÁ PRONTO!</h2><div class="result-card"><img src="data:image/png;base64,${data.image}" alt="Avatar personalizado no estilo GTA" style="display:block;width:100%;max-width:520px;margin:0 auto 18px;border-radius:14px"><p>✨ Seu personagem personalizado</p><a class="cta" href="data:image/png;base64,${data.image}" download="meu-avatar-gta.png" style="display:inline-block;text-decoration:none;padding:14px 20px">BAIXAR IMAGEM</a></div><div class="navbtns"><button class="secondary" onclick="render()">VOLTAR AO RESUMO</button></div>`;
+    return;
+  }
+  if(!data.taskId) throw new Error(data.error||'O servidor não retornou o identificador da geração.');
+  let taskId=data.taskId;
+  for(let attempt=0;attempt<60;attempt++){
+    await new Promise(resolve=>setTimeout(resolve,5000));
+    const statusResponse=await fetch(`/.netlify/functions/generate-avatar?taskId=${encodeURIComponent(taskId)}`);
+    const statusRaw=await statusResponse.text();
+    let statusData;try{statusData=JSON.parse(statusRaw)}catch{throw new Error(`Falha ao consultar geração (${statusResponse.status}).`)}
+    if(!statusResponse.ok)throw new Error(statusData.error||'Erro ao consultar a geração.');
+    if(statusData.status==='completed'&&statusData.videoUrl){
+      screen.innerHTML=`<h2>SEU PERSONAGEM ESTÁ PRONTO!</h2><div class="result-card"><video controls autoplay playsinline style="display:block;width:100%;max-width:520px;margin:0 auto 18px;border-radius:14px" src="${statusData.videoUrl}"></video><p>✨ Sua transformação no universo GTA</p><a class="cta" href="${statusData.videoUrl}" download="meu-personagem-gta.mp4" style="display:inline-block;text-decoration:none;padding:14px 20px">BAIXAR VÍDEO</a><div class="notice">Geração concluída com IA a partir da sua foto e escolhas.</div></div><div class="navbtns"><button class="secondary" onclick="render()">VOLTAR AO RESUMO</button></div>`;
+      return;
+    }
+    if(statusData.status==='failed')throw new Error(statusData.error||'A geração falhou. Tente novamente.');
+    const progress=Math.min(90,12+attempt*1.3);
+    const bar=document.getElementById('load'),status=document.getElementById('status');
+    if(bar)bar.style.width=progress+'%';
+    if(status)status.textContent='Renderizando seu personagem... isso pode levar alguns minutos.';
+  }
+  throw new Error('A geração está demorando mais que o esperado. Tente novamente em alguns minutos.');
+ }catch(err){
+  screen.innerHTML=`<div class="result-card"><h2>Não conseguimos gerar agora</h2><p>${String(err.message||err).replace(/[<>]/g,'')}</p><button class="cta" onclick="processing()">TENTAR NOVAMENTE</button><button class="secondary" onclick="render()" style="margin-top:10px">VOLTAR</button></div>`;
+ }
 }</script></body></html>
