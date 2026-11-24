@@ -14,6 +14,52 @@ const log = (step, details = {}) => {
   console.log(`[KIWIFY WEBHOOK] ${step}`, JSON.stringify(details));
 };
 
+// Inspeciona somente os nomes dos campos e seus tipos.
+// Não registra valores pessoais, e-mails, telefones ou dados de pagamento.
+function inspectStructure(obj, prefix = '', result = [], depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 5) return result;
+
+  for (const [key, value] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+
+    result.push({
+      path,
+      type: Array.isArray(value)
+        ? 'array'
+        : value === null
+        ? 'null'
+        : typeof value
+    });
+
+    if (value && typeof value === 'object') {
+      inspectStructure(value, path, result, depth + 1);
+    }
+  }
+
+  return result;
+}
+
+function findSckPaths(obj, prefix = '', result = []) {
+  if (!obj || typeof obj !== 'object') return result;
+
+  for (const [key, value] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+
+    if (key.toLowerCase() === 'sck') {
+      result.push({
+        path,
+        present: value !== null && value !== undefined && value !== ''
+      });
+    }
+
+    if (value && typeof value === 'object') {
+      findSckPaths(value, path, result);
+    }
+  }
+
+  return result;
+}
+
 export default async (req) => {
   const requestId = crypto.randomUUID();
 
@@ -23,7 +69,6 @@ export default async (req) => {
   });
 
   if (req.method !== 'POST') {
-    log('Rejected: invalid method', { requestId });
     return json({ error: 'Method not allowed' }, 405);
   }
 
@@ -81,8 +126,7 @@ export default async (req) => {
   if (!signatureValid) {
     log('Rejected: invalid signature', {
       requestId,
-      signaturePresent: true,
-      signatureLength: signature.length
+      signaturePresent: true
     });
 
     return json({ error: 'Invalid webhook signature' }, 401);
@@ -115,6 +159,17 @@ export default async (req) => {
     requestId,
     eventType,
     orderStatus
+  });
+
+  // Diagnóstico seguro: somente estrutura e nomes dos campos.
+  log('EVENT STRUCTURE', {
+    requestId,
+    fields: inspectStructure(event)
+  });
+
+  log('SCK FIELD DIAGNOSTIC', {
+    requestId,
+    sckFields: findSckPaths(event)
   });
 
   const isApproved =
@@ -150,32 +205,37 @@ export default async (req) => {
     null;
 
   if (!intentId) {
-    log('Approved purchase ignored: intent ID missing', {
+    log('DIAGNOSTIC: intent ID missing', {
       requestId,
-      orderId: orderId ? String(orderId) : null,
+      eventType,
+      orderStatus,
+      orderIdPresent: !!orderId,
       trackingParametersPresent: !!(
         event?.TrackingParameters ||
         event?.tracking_parameters ||
         event?.Parameters ||
         event?.parameters
-      )
+      ),
+      sckFields: findSckPaths(event)
     });
 
     return json({
       received: true,
-      ignored: true,
+      diagnostic: true,
       reason: 'Missing intent tracking ID'
     });
   }
 
   if (!orderId) {
-    log('Approved purchase ignored: order ID missing', {
-      requestId
+    log('DIAGNOSTIC: order ID missing', {
+      requestId,
+      eventType,
+      orderStatus
     });
 
     return json({
       received: true,
-      ignored: true,
+      diagnostic: true,
       reason: 'Missing order ID'
     });
   }
@@ -183,14 +243,14 @@ export default async (req) => {
   const intent = String(intentId);
 
   if (!/^[a-zA-Z0-9_-]{20,80}$/.test(intent)) {
-    log('Approved purchase ignored: invalid intent ID format', {
+    log('DIAGNOSTIC: invalid intent ID format', {
       requestId,
       intentLength: intent.length
     });
 
     return json({
       received: true,
-      ignored: true,
+      diagnostic: true,
       reason: 'Invalid intent ID format'
     });
   }
@@ -225,8 +285,6 @@ export default async (req) => {
 
     log('PAYMENT SAVED SUCCESSFULLY', {
       requestId,
-      orderId: String(orderId),
-      intentId: intent,
       previouslySaved: !!existing
     });
 
