@@ -39,14 +39,68 @@ let step=0,photo=null,answers={};const questions=[{title:'Qual será seu estilo 
   const pick=(map,text)=>map[Object.keys(map).find(k=>text.includes(k))]||'';
   return 'CREATE A CINEMATIC CHARACTER INTRODUCTION TRAILER inspired by Grand Theft Auto VI and the Vice City universe.\n\nREFERENCE PHOTO AND IDENTITY: The uploaded photo is the identity reference for the protagonist. Preserve recognizable facial identity, facial structure, skin tone, hairstyle and distinctive features. Do not replace the person with a generic face.\n\nLIFESTYLE: '+pick(lifestylePrompts,lifestyle)+'\nPERSONALITY: '+pick(personalityPrompts,personality)+'\nWARDROBE AND VISUAL STYLE: '+pick(visualPrompts,visual)+'\nLOCATION AND ENVIRONMENT: '+pick(territoryPrompts,territory)+'\nVEHICLE AND ACTION: '+pick(vehiclePrompts,vehicle)+'\n\nTRAILER STORY STRUCTURE: (1) CINEMATIC OPENING — establish the chosen territory with a wide atmospheric shot, moving camera and dramatic lighting. (2) PROTAGONIST REVEAL — introduce the protagonist based on the reference photo with a cinematic camera move, natural expression and confident posture. (3) LIFESTYLE AND ACTION — show the character interacting with the chosen lifestyle, environment and vehicle, using dynamic but realistic motion. (4) ICONIC FINAL SHOT — finish with a memorable protagonist moment, strong composition and dramatic camera movement.\n\nSTYLE: GTA VI / Vice City inspired universe, AAA video-game trailer, cinematic realism, tropical neon atmosphere, dramatic shadows, premium color grading, immersive storytelling, dynamic camera movement, realistic environmental motion. This must feel like a VIDEO GAME CHARACTER INTRODUCTION TRAILER, not a static portrait or slideshow. Avoid facial distortion, identity changes, unnatural motion, flicker, generic AI imagery and low-quality details.';
 }
-function saveExperienceBeforeCheckout(){
-  const prompt=buildTrailerPrompt(answers);
-  try{sessionStorage.setItem('gta_character_answers',JSON.stringify(answers));sessionStorage.setItem('gta_character_prompt',prompt);sessionStorage.setItem('gta_character_price','19.90');}catch(e){console.warn('Não foi possível salvar as respostas na sessão.',e)}
-  if(photo){try{const request=indexedDB.open('GTACharacterExperience',1);request.onupgradeneeded=()=>request.result.createObjectStore('assets',{keyPath:'id'});request.onsuccess=()=>{const db=request.result;const tx=db.transaction('assets','readwrite');tx.objectStore('assets').put({id:'reference_photo',blob:photo,updatedAt:Date.now()});tx.oncomplete=()=>db.close();tx.onerror=()=>db.close();};request.onerror=()=>console.warn('Foto não pôde ser guardada localmente.');}catch(e){console.warn('Não foi possível guardar a foto localmente.',e)}}
-  return prompt;
+async function salvarExperienciaAntesDoCheckout() {
+  const prompt = buildTrailerPrompt(answers);
+  try {
+    sessionStorage.setItem(
+      'gta_character_answers',
+      JSON.stringify(answers)
+    );
+    sessionStorage.setItem('gta_character_prompt', prompt);
+    sessionStorage.setItem('gta_character_price', '19.90');
+
+    if (!photo) {
+      throw new Error('Foto não encontrada.');
+    }
+
+    await new Promise((resolve, reject) => {
+      const request = indexedDB.open('GTACharacterExperience', 1);
+
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains('assets')) {
+          db.createObjectStore('assets', { keyPath: 'id' });
+        }
+      };
+
+      request.onerror = () => reject(request.error);
+
+      request.onsuccess = () => {
+        const db = request.result;
+        const tx = db.transaction('assets', 'readwrite');
+
+        tx.objectStore('assets').put({
+          id: 'reference_photo',
+          blob: photo,
+          updatedAt: Date.now()
+        });
+
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+
+        tx.onabort = () => {
+          db.close();
+          reject(tx.error);
+        };
+      };
+    });
+
+    return prompt;
+  } catch (error) {
+    console.error('Erro ao salvar experiência:', error);
+    throw error;
+  }
 }
-function processing(){
-  saveExperienceBeforeCheckout();
+
+async function processing(){
+  await salvarExperienciaAntesDoCheckout();
   const intentId=(crypto.randomUUID?crypto.randomUUID():('gta_'+Date.now()+'_'+Math.random().toString(36).slice(2))).replace(/-/g,'');
   sessionStorage.setItem('gta_character_intent',intentId);
   const checkout=new URL('https://pay.kiwify.com.br/Sl0zqCR');
